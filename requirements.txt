@@ -1,0 +1,11 @@
+ultralytics>=8.0.0
+opencv-python
+tqdm
+pyyaml
+torch
+torchvision
+matplotlib
+seaborn
+pillow
+numpy
+pandas 

@@ -1,0 +1,5 @@
+rpc/
+data/
+runs/
+yolo11n.pt
+yolov8m.pt
