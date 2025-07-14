@@ -150,12 +150,90 @@ The system automatically:
 - Uses dynamic class weights for balanced training
 - Implements label smoothing for class imbalance mitigation
 
+## Stage B: Knowledge Distillation with Ensemble Teacher
+
+### Overview
+
+Knowledge distillation is a technique where a smaller "student" model learns from a larger, more powerful "teacher" model. In our implementation, we use an ensemble of two large models (YOLOv8x + YOLOv8l) as teachers to distill knowledge into our compact student model (YOLOv8m from Stage A).
+
+### Architecture
+
+```
+    Teacher Models (Ensemble)
+    ┌─────────────────────────────┐
+    │     YOLOv8x (Teacher 1)     │
+    │         ↓                   │
+    │    Teacher Outputs 1        │
+    └─────────────────────────────┘
+                 ↓
+    ┌─────────────────────────────┐
+    │      Average Outputs        │ ← Ensemble
+    │    (Logits + BBox Reg)      │
+    └─────────────────────────────┘
+                 ↓
+    ┌─────────────────────────────┐
+    │     YOLOv8l (Teacher 2)     │
+    │         ↓                   │
+    │    Teacher Outputs 2        │
+    └─────────────────────────────┘
+                 ↓
+           Knowledge Transfer
+                 ↓
+    ┌─────────────────────────────┐
+    │    YOLOv8m (Student)        │
+    │    From Stage A + Focal     │
+    └─────────────────────────────┘
+```
+
+### Knowledge Distillation Process
+
+1. **Teacher Forward Pass**: The ensemble teacher (YOLOv8x + YOLOv8l) processes input images and produces averaged outputs (no gradients computed)
+
+2. **Student Forward Pass**: The student model (YOLOv8m) processes the same images and produces its own outputs
+
+3. **Loss Calculation**:
+   - `loss_det`: Original YOLO detection loss (student predictions vs. ground truth)
+   - `loss_kd`: Knowledge distillation loss (student predictions vs. teacher predictions)
+   - `total_loss = α * loss_det + (1-α) * loss_kd`
+
+4. **Knowledge Distillation Loss Components**:
+   - **KL Divergence Loss**: `KL(log_softmax(student/T), softmax(teacher/T)) * T²`
+   - **MSE Loss**: `MSE(student_bbox, teacher_bbox)`
+
+### Key Parameters
+
+- **Temperature (T)**: Controls the softness of probability distributions
+  - Higher T → softer distributions → easier knowledge transfer
+  - Lower T → harder distributions → more focused on confident predictions
+  - Default: T = 4.0
+
+- **Alpha (α)**: Balances detection loss and distillation loss
+  - α = 0.5 → Equal weighting of both losses
+  - Higher α → More emphasis on ground truth
+  - Lower α → More emphasis on teacher knowledge
+
+### Expected Benefits
+
+1. **Improved Accuracy**: Student learns from multiple teacher perspectives
+2. **Better Generalization**: Ensemble knowledge provides robustness
+3. **Maintained Efficiency**: Student model remains compact (YOLOv8m)
+4. **Enhanced Tail-Class Performance**: Combined with Stage A focal loss benefits
+
+### Usage
+
+```bash
+# Train with knowledge distillation
+python train_distill.py --teacher_runs yolov8x.pt yolov8l.pt --student_ckpt runs/focal/weights/best.pt --epochs 60 --batch 8 --evaluate
+```
+
 ## Files Description
 
 - `requirements.txt`: Python dependencies
 - `scripts/rpc_to_yolo.py`: Dataset conversion script
 - `train.py`: YOLOv8 baseline training script
 - `train_focal.py`: YOLOv8 focal loss training script (Stage A)
+- `train_distill.py`: Knowledge distillation training script (Stage B)
+- `distill/ensemble_teacher.py`: Ensemble teacher implementation
 - `hyp_focal.yaml`: Focal loss hyperparameters configuration
 - `tools/gen_class_weights.py`: Dynamic class weights generation
 - `data/RPC/rpc.yaml`: YOLO dataset configuration file (auto-generated)
